@@ -99,6 +99,7 @@ class PPO_TSDepth:
         mean_action_reconstruction_loss = 0
         if not self.distillation:
             generator = self.storage.teacher_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
+            # ═══ 第一遍: Teacher PPO ═══
             for (obs_batch, privileged_obs_batch, critic_obs_batch, actions_batch, target_values_batch, returns_batch, old_actions_log_prob_batch, advantages_batch, old_mu_batch, old_sigma_batch, student_obs_batch, student_privileged_obs_batch, depth_features_batch, hid_states_batch, masks_batch) in generator:
                 self.actor_critic.act(obs_batch, None, privileged_obs_batch, 'teacher', None, None)
                 actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
@@ -135,8 +136,11 @@ class PPO_TSDepth:
                 mean_value_loss += value_loss.item()
                 mean_surrogate_loss += surrogate_loss.item()
             generator = self.storage.teacher_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
+            
+            # ═══ 第二遍: Student latent MSE ═══
             for (obs_batch, privileged_obs_batch, critic_obs_batch, actions_batch, target_values_batch, returns_batch, old_actions_log_prob_batch, advantages_batch, old_mu_batch, old_sigma_batch, student_obs_batch, student_privileged_obs_batch, depth_features_batch, hid_states_batch, masks_batch) in generator:
                 latent = self.actor_critic.depth_history_encoder(student_obs_batch, depth_features_batch, hidden_states=hid_states_batch, masks=masks_batch)
+                # privilege_encoder 不更新梯度, 用同一份 forward，teacher 的更新会让 student 的 target 漂移，导致训练不稳定
                 with torch.no_grad():
                     unpadded_student_privileged_obs = unpad_trajectories(student_privileged_obs_batch, masks_batch)
                     latent_targets = self.actor_critic.privilege_encoder(unpadded_student_privileged_obs)
